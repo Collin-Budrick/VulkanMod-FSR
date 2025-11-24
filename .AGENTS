@@ -1,0 +1,26 @@
+VulkanMod FSR Addon Plan
+
+Constraints
+- Do not modify VulkanMod-Refcode; treat it only as reference.
+- Build a separate Fabric addon JAR that depends on VulkanMod and replaces/extents its rendering via public/mixin hooks.
+
+High-Level Steps
+- Project setup: new Fabric Loom project (e.g., vulkanmod-fsr-addon) with dependency on VulkanMod; include FidelityFX SDK assets (upscaler/shader sources or precompiled SPIR-V) and a minimal config system.
+- Renderer hook: at client init, obtain Renderer and inject a custom MainPass implementation (addon-owned) that renders to offscreen render-res targets, runs FSR, then composites to the swapchain. Use mixin/reflective hooks only inside the addon project.
+- Resources: create per-frame offscreen color/depth/motion/optional reactive/T&C textures sized to render resolution; manage descriptor pools and samplers per frame count from Initializer.CONFIG.frameQueueSize.
+- FSR integration: wrap FFX Vulkan backend callbacks to allocate scratch resources; compile/ship FSR compute pipelines; handle jitter, motion-vector scale, and flags; provide fallback to native rendering if unsupported.
+- Resizing & lifecycle: listen for swapchain/resize events, recreate offscreen targets and FSR contexts; clean up on shutdown.
+- UI/config: expose toggles for enable/disable, render scale presets, quality mode, optional debug views; persist config in addon scope.
+- Validation: add debug overlays/views, log GPU capability checks, and ensure a safe fallback path (default MainPass) on errors.
+
+Open Decisions / Next Actions
+- Define quality presets/UI placement.
+- Draft addon project structure and hook points.
+
+Chosen Approach (best quality/perf)
+- Motion vectors: dedicated geometry velocity pass at render resolution (RG16F/optionally RG32F) using current/previous clip-space positions; no screen-space reprojection.
+- Render targets: offscreen render-res color + linear depth per frame sized by FSR preset.
+- Jitter: apply per-frame camera jitter for TAA; pass jitter cancellation into motion vectors and FSR flags.
+- Reactive/T&C masks: lightweight compute step to derive masks from alpha/transparent draws for better particle/alpha handling.
+- FSR path: FidelityFX Vulkan backend compute dispatch after scene + aux passes; RCAS configurable (on by default) for sharpness; composite to swapchain with proper layout transitions.
+- Fallback: GPU capability check at init; if unsupported, revert to default MainPass without altering VulkanMod.
