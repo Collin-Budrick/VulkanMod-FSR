@@ -1,0 +1,82 @@
+plugins {
+    id 'fabric-loom' version '1.12-SNAPSHOT'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // VulkanMod dependency (compile/runtime). Expect a prebuilt jar in ../VulkanMod-Refcode/build/libs
+    def vmJar = file("../VulkanMod-Refcode/build/libs/VulkanMod_1.21.10.jar")
+    if (vmJar.exists()) {
+        modImplementation files(vmJar)
+    } else {
+        modCompileOnly files("../VulkanMod-Refcode/build/libs")
+        logger.lifecycle("VulkanMod jar not found at ${vmJar}; configure dependency manually.")
+    }
+
+    // LWJGL Vulkan pieces for any addon-owned pipelines/shaders.
+    implementation "org.lwjgl:lwjgl:${project.lwjgl_version}"
+    implementation "org.lwjgl:lwjgl-vma:${project.lwjgl_version}"
+    implementation "org.lwjgl:lwjgl-shaderc:${project.lwjgl_version}"
+    runtimeOnly "org.lwjgl:lwjgl:${project.lwjgl_version}:${project.win_natives}"
+    runtimeOnly "org.lwjgl:lwjgl:${project.lwjgl_version}:${project.linux_natives}"
+    runtimeOnly "org.lwjgl:lwjgl:${project.lwjgl_version}:${project.macos_natives}"
+    runtimeOnly "org.lwjgl:lwjgl:${project.lwjgl_version}:${project.macos_arm_natives}"
+}
+
+loom {
+    runs {
+        client {
+            client()
+            setConfigName("FSR Addon Client")
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            artifactId = project.archives_base_name
+            from components.java
+        }
+    }
+}

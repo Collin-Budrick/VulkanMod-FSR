@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "vulkanmod-fsr-addon",
+  "version": "${version}",
+  "name": "VulkanMod FSR Addon",
+  "description": "Addon providing FSR3/4 upscaling for VulkanMod without modifying its core.",
+  "authors": [
+    "FSR Addon"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "net.vulkanmod.fsr.FsrAddonClient"
+    ]
+  },
+  "mixins": [
+    "mixins.fsraddon.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.3",
+    "minecraft": "1.21.10",
+    "fabric": "*",
+    "vulkanmod": "*"
+  }
+}

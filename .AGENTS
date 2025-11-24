@@ -24,3 +24,41 @@ Chosen Approach (best quality/perf)
 - Reactive/T&C masks: lightweight compute step to derive masks from alpha/transparent draws for better particle/alpha handling.
 - FSR path: FidelityFX Vulkan backend compute dispatch after scene + aux passes; RCAS configurable (on by default) for sharpness; composite to swapchain with proper layout transitions.
 - Fallback: GPU capability check at init; if unsupported, revert to default MainPass without altering VulkanMod.
+
+Implementation Steps (start to finish)
+- Project scaffold
+  - Create a new Fabric Loom project (e.g., vulkanmod-fsr-addon) with `fabric.mod.json` declaring a hard dependency on VulkanMod and a client entrypoint.
+  - Set up Gradle to include FidelityFX SDK assets from `FidelityFX-SDK-v2.0.0/Kits/FidelityFX` (upscalers + API) and to package precompiled SPIR-V or compile HLSL at build time.
+  - Add a mixin config (e.g., `mixins.fsraddon.json`) targeting client side only; ensure Mixin AP is in the dependencies.
+- Shader and pipeline prep
+  - From the SDK docs (`docs/techniques/super-resolution-upscaler.md` for FSR3, `docs/techniques/super-resolution-ml.md` for FSR4), select the Vulkan backend API headers and shader sources. Extract or precompile the required compute shaders (FSR upscaler, RCAS, any FSR4 ML kernels) to SPIR-V with matching descriptor layouts.
+  - Define addon-owned descriptor set layouts, samplers, and pipeline layouts mirroring the FFX Vulkan backend expectations; ensure binding indices match the SDK samples.
+  - Prepare a lightweight compute shader to derive reactive/T&C masks from alpha/transparent markers.
+- Hook points into VulkanMod (runtime only)
+  - Add a mixin to run after `Renderer.initRenderer` completes to obtain the `Renderer` instance and call `setMainPass` with the addon’s `FsrMainPass`.
+  - If needed, mix into resize handling to register an on-resize callback so the addon can recreate its resources; otherwise poll via public APIs.
+  - Avoid altering VulkanMod-Refcode; only call exposed methods (`setMainPass`, `getSwapChain`, etc.) and use public types.
+- Addon rendering flow
+  - Create `FsrMainPass` implementing `MainPass`. On init, allocate per-frame offscreen framebuffers at render resolution: color (HDR-capable), linear depth, velocity (RG16F/RG32F), reactive/T&C (R8).
+  - Implement a velocity render pass: render geometry with a velocity shader variant writing current vs previous clip-space deltas into the velocity target. Store previous view-projection and jitter each frame.
+  - Apply per-frame camera jitter before main scene render; pass jitter offsets into the velocity pass and FSR dispatch (jitter cancellation flag).
+  - Render the main scene into offscreen color/depth at render resolution. Ensure depth is linearized or provide format/flags to FSR as required (`FFX_UPSCALE_ENABLE_DEPTH_INVERTED`, etc.).
+  - Run reactive/T&C mask compute to fill R8 mask textures based on alpha/transparent draw metadata.
+  - Dispatch FSR (FSR3 upscaler initially, FSR4 when ready) via the FidelityFX Vulkan backend: bind inputs (color, depth, velocity, reactive/T&C, exposure), set render/presentation resolutions, and execute compute pipelines. Enable RCAS by default; expose strength in config.
+  - Composite/blit the upscaled output to the swapchain color attachment: transition swapchain image to `COLOR_ATTACHMENT_OPTIMAL`, draw a fullscreen quad/blit, then transition to `PRESENT`.
+  - In `end`, finish command recording and let the existing submission/present flow proceed unchanged.
+- Resource management and lifecycle
+  - On resize/swapchain recreation: destroy and recreate offscreen textures, framebuffers, descriptor pools, and the FSR context; update render/presentation dimensions.
+  - Per-frame: rotate resources by frame index from `Initializer.CONFIG.frameQueueSize`; reset descriptor pools per frame to match VulkanMod behavior.
+  - Cleanup: on client shutdown, destroy FSR contexts, pipelines, descriptor pools, and offscreen textures; do not touch VulkanMod resources.
+- FidelityFX backend integration
+  - Implement the FFX backend callbacks using VulkanMod’s `VkGpuDevice`/allocator helpers for buffer/texture allocation. Ensure scratch memory sizes are queried via `ffxQuery` for the selected FSR version.
+  - Set flags for depth inversion/infinite far plane, motion vector resolution, and HDR if applicable.
+  - Validate required GPU features (e.g., FP16, subgroup/wave ops for FSR4 ML) and fall back to native rendering if missing.
+- Configuration and UI
+  - Add addon-owned config with presets: NativeAA, Quality (1.5x), Balanced (1.7x), Performance (2.0x), UltraPerformance (3.0x); toggles for FSR3/4 selection, RCAS strength, enable/disable, debug view (mv/reactive/history).
+  - Provide a config screen under video settings (addon page); apply changes on restart or safe reload.
+- Debugging and validation
+  - Add optional debug overlays: motion vector heatmap, reactive mask view, FSR debug outputs if available.
+  - Log GPU capability checks and FSR context creation; if creation fails, switch back to default `MainPass` and inform the user.
+  - Test scenarios: native vs FSR at multiple presets, window resize, alt-tab, unsupported GPU path, and performance sampling.

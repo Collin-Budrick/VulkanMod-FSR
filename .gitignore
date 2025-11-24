@@ -1,0 +1,7 @@
+.gradle
+build
+.idea
+run
+*/build
+fsr-addon/.gradle
+fsr-addon/build
